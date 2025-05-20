@@ -1,7 +1,16 @@
 package com.strikz.pillagersstaydead;
 
-import javax.annotation.ParametersAreNonnullByDefault;
+import net.fabricmc.api.ModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
+
+import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.logging.LogUtils;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerEntityCombatEvents; // For death
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos; // Still used for StructureManager calls
@@ -24,15 +33,6 @@ import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.saveddata.SavedData;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.ModList;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
-import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
-import net.neoforged.neoforge.event.level.LevelEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.slf4j.Logger;
 
 import java.util.List; // Added for list of potential structures
@@ -44,10 +44,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-@Mod(PillagersStayDead.MODID)
-public class PillagersStayDead {
+public class PillagersStayDead implements ModInitializer {
     public static final String MODID = "pillagersstaydead";
     private static final Logger LOGGER = LogUtils.getLogger();
+
     
     private static final Set<ResourceLocation> TRACKED_STRUCTURES;
 
@@ -111,14 +111,14 @@ public class PillagersStayDead {
             if (namespace.equals("minecraft")) {
                 shouldAdd = true;
             } else if (namespace.equals("towns_and_towers")) {
-                if (ModList.get().isLoaded("t_and_t")) {
+                if (FabricLoader.getInstance().isModLoaded("t_and_t")) {
                     shouldAdd = true;
                 } else {
                     LOGGER.info("PillagersStayDead: Mod 't_and_t' (Towns and Towers) not loaded, not tracking structure: {}", loc);
                 }
             } else {
                 // For other mods like terralith, ctov, assume namespace is mod ID
-                if (ModList.get().isLoaded(namespace)) {
+                if (FabricLoader.getInstance().isModLoaded(namespace)) {
                     shouldAdd = true;
                 } else {
                     LOGGER.info("PillagersStayDead: Mod '{}' not loaded, not tracking structure: {}", namespace, loc);
@@ -145,36 +145,36 @@ public class PillagersStayDead {
     private int tickCounter = 0; // Universal tick counter
     private final Set<ChunkPos> pendingChunkScans = ConcurrentHashMap.newKeySet();
 
-    public PillagersStayDead(IEventBus modEventBus) {
-        modEventBus.addListener(this::setup);
-        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.register(this);
+    @Override
+    public void onInitialize() {
+        LOGGER.info("PillagersStayDead: {} mod setup", MODID);
+        
+        CommandRegistrationCallback.EVENT.register(this::onRegisterCommands);
+        ServerChunkEvents.CHUNK_LOAD.register(this::onChunkLoad);
+        ServerChunkEvents.CHUNK_UNLOAD.register(this::onChunkUnload);
+        ServerWorldEvents.LOAD.register(this::onWorldLoad);
+        ServerWorldEvents.UNLOAD.register(this::onWorldSave);
+        ServerEntityCombatEvents.AFTER_KILLED_OTHER_ENTITY.register(this::onEntityDeath);
+        ServerTickEvents.END_SERVER_TICK.register(this::onWorldTick);
+        ServerEntityEvents.ENTITY_LOAD.register(this::onEntityJoin);
     }
 
-    @SubscribeEvent
-    public void onChunkLoad(net.neoforged.neoforge.event.level.ChunkEvent.Load event) {
-        if (!(event.getLevel() instanceof ServerLevel serverLevel) || serverLevel.dimension() != Level.OVERWORLD) return;
+    public void onChunkLoad(ServerLevel serverLevel, ChunkAccess chunk) {
+        if (serverLevel.dimension() != Level.OVERWORLD) return;
         
-        ChunkAccess chunk = event.getChunk();
-        if (chunk == null) return;
-
         if (!outpostCache.containsKey(chunk.getPos().toLong())) {
             pendingChunkScans.add(chunk.getPos());
         }
     }
 
-    @SubscribeEvent
-    public void onChunkUnload(net.neoforged.neoforge.event.level.ChunkEvent.Unload event) {
-        if (!(event.getLevel() instanceof ServerLevel serverLevel) || serverLevel.dimension() != Level.OVERWORLD) return;
+    public void onChunkUnload(ServerLevel serverLevel, ChunkAccess chunk) {
+        if (serverLevel.dimension() != Level.OVERWORLD) return;
         
-        ChunkAccess chunk = event.getChunk();
-        if (chunk == null) return;
-
         pendingChunkScans.remove(chunk.getPos());
     }
 
-    @SubscribeEvent
-    public void onRegisterCommands(net.neoforged.neoforge.event.RegisterCommandsEvent event) {
-        event.getDispatcher().register(
+    public void onRegisterCommands(CommandDispatcher<net.minecraft.commands.CommandSourceStack> dispatcher, net.minecraft.commands.CommandBuildContext registryAccess, net.minecraft.commands.Commands.CommandSelection environment) {
+        dispatcher.register(
             net.minecraft.commands.Commands.literal("psd_scan")
                 .requires(source -> source.hasPermission(2))
                 .executes(context -> {
@@ -210,26 +210,21 @@ public class PillagersStayDead {
             }
         }
         if (clearedCount > 0) {
-            LOGGER.info("PillagersStayDead: Cleared {} chunk(s) from outpostCache for forced scan near {}.", clearedCount, centerPos);
+            LOGGER.debug("PillagersStayDead: Cleared {} chunk(s) from outpostCache for forced scan near {}.", clearedCount, centerPos);
         }
     }
 
-    private void setup(final FMLCommonSetupEvent event) {
-        LOGGER.info("PillagersStayDead: {} mod setup", MODID);
-    }
+    public void onWorldLoad(net.minecraft.server.MinecraftServer server, ServerLevel level) {    
+        if (level.dimension() != Level.OVERWORLD) return;
 
-    @SubscribeEvent
-    public void onWorldLoad(LevelEvent.Load event) {    
-        if (!(event.getLevel() instanceof ServerLevel server) || server.dimension() != Level.OVERWORLD) return;
-
-        LOGGER.info("PillagersStayDead: Loading world data for dimension {}", server.dimension().location());
-        DimensionDataStorage storage = server.getDataStorage();
+        LOGGER.info("PillagersStayDead: Loading world data for dimension {}", level.dimension().location());
+        DimensionDataStorage storage = level.getDataStorage();
         
         worldData = storage.computeIfAbsent(
             new SavedData.Factory<>(
                 NeutralizedOutpostsData::new,
                 (tag, provider) -> {
-                    LOGGER.info("PillagersStayDead: Loading neutralized outposts data from NBT for dimension {}", server.dimension().location());
+                    LOGGER.info("PillagersStayDead: Loading neutralized outposts data from NBT for dimension {}", level.dimension().location());
                     return NeutralizedOutpostsData.load(tag);
                 },
                 DataFixTypes.LEVEL
@@ -240,31 +235,28 @@ public class PillagersStayDead {
         neutralizedOutposts.clear();
         if (worldData != null) {
             neutralizedOutposts.addAll(worldData.getNeutralizedOutposts());
-            LOGGER.info("PillagersStayDead: Loaded {} neutralized outposts for dimension {}.", neutralizedOutposts.size(), server.dimension().location());
+            LOGGER.info("PillagersStayDead: Loaded {} neutralized outposts for dimension {}.", neutralizedOutposts.size(), level.dimension().location());
         } else {
-            LOGGER.error("PillagersStayDead: Failed to load or create NeutralizedOutpostsData for dimension {}!", server.dimension().location());
+            LOGGER.error("PillagersStayDead: Failed to load or create NeutralizedOutpostsData for dimension {}!", level.dimension().location());
         }
         
         LOGGER.info("PillagersStayDead: Skipping initial full world scan - structures will be detected as chunks load or via player proximity.");
     }
 
-    @SubscribeEvent
-    public void onWorldSave(LevelEvent.Save event) {
-        if (!(event.getLevel() instanceof ServerLevel serverLevel) || 
-            serverLevel.dimension() != Level.OVERWORLD || 
-            worldData == null) return;
+    public void onWorldSave(net.minecraft.server.MinecraftServer server, ServerLevel level) {
+        if (level.dimension() != Level.OVERWORLD || worldData == null) return;
             
         worldData.setNeutralizedOutposts(neutralizedOutposts);
         worldData.setDirty(); 
-        LOGGER.debug("PillagersStayDead: Saved {} neutralized outposts for dimension {}", neutralizedOutposts.size(), serverLevel.dimension().location());
+        LOGGER.info("PillagersStayDead: Saved {} neutralized outposts for dimension {}", neutralizedOutposts.size(), level.dimension().location());
     }
 
-    @SubscribeEvent
-    public void onEntityDeath(LivingDeathEvent event) {
-        if (event.getEntity().level().isClientSide() || !(event.getEntity() instanceof Pillager pillager)) return;
+    public void onEntityDeath(ServerLevel level, net.minecraft.world.entity.Entity entity, net.minecraft.world.entity.LivingEntity killed) {
+        if (level.isClientSide() || !(killed instanceof Pillager)) return;
+        Pillager pillager = (Pillager) killed;
         
-        ServerLevel level = (ServerLevel) pillager.level();
-        if (level.dimension() != Level.OVERWORLD) return;
+        ServerLevel serverLevel = (ServerLevel) level;
+        if (serverLevel.dimension() != Level.OVERWORLD) return;
 
         UUID pillagerId = pillager.getUUID();
         BoundingBox outpostAssignedToPillager = null;
@@ -279,7 +271,7 @@ public class PillagersStayDead {
         
         if (outpostAssignedToPillager != null) { 
             if (neutralizedOutposts.add(outpostAssignedToPillager)) {
-                LOGGER.debug("PillagersStayDead: Outpost at {} neutralized via pillager death.", outpostAssignedToPillager.getCenter());
+                LOGGER.info("PillagersStayDead: Outpost at {} neutralized via pillager death.", outpostAssignedToPillager.getCenter());
             }
             if (worldData != null) {
                 worldData.addNeutralizedOutpost(outpostAssignedToPillager); 
@@ -288,11 +280,10 @@ public class PillagersStayDead {
         }
     }
 
-    @SubscribeEvent
-    public void onWorldTick(ServerTickEvent.Post event) {
-        ServerLevel server = event.getServer().getLevel(Level.OVERWORLD);
-        if (server == null) return;
-
+    public void onWorldTick(net.minecraft.server.MinecraftServer server) {
+        ServerLevel overworld = server.getLevel(Level.OVERWORLD);
+        if (overworld == null) return;
+        // Pass 'overworld' to methods that need ServerLevel
         tickCounter++;
 
         if (tickCounter % CHUNK_SCAN_PROCESSING_INTERVAL == 0 && !pendingChunkScans.isEmpty()) {
@@ -307,19 +298,19 @@ public class PillagersStayDead {
             }
 
             if (!chunksToActuallyScanThisInterval.isEmpty()) {
-                LOGGER.trace("PillagersStayDead: Processing {} pending chunks for outpost scan (radius 0).", chunksToActuallyScanThisInterval.size());
+                LOGGER.debug("PillagersStayDead: Processing {} pending chunks for outpost scan (radius 0).", chunksToActuallyScanThisInterval.size());
                 for (ChunkPos chunkPos : chunksToActuallyScanThisInterval) {
-                    scanAndTrackExistingOutposts(server, chunkPos.getMiddleBlockPosition(server.getMinBuildHeight() + server.getHeight() / 2), 0);
+                    scanAndTrackExistingOutposts(overworld, chunkPos.getMiddleBlockPosition(overworld.getMinBuildHeight() + overworld.getHeight() / 2), 0);
                 }
             }
         }
 
         if (tickCounter % SCAN_INTERVAL == 0) {
-            scanAndTrackExistingOutpostsAroundPlayers(server);
+            scanAndTrackExistingOutpostsAroundPlayers(overworld);
         }
 
         if (tickCounter % ENTITY_CHECK_INTERVAL == 0) {
-            checkAndUpdateEntityTracking(server);
+            checkAndUpdateEntityTracking(overworld);
         }
     }
 
@@ -353,7 +344,7 @@ public class PillagersStayDead {
         if (!outpostsThatBecameEmpty.isEmpty()) {
             for (BoundingBox bbToNeutralize : outpostsThatBecameEmpty) {
                 if (neutralizedOutposts.add(bbToNeutralize)) {
-                    LOGGER.debug("PillagersStayDead: Outpost at {} neutralized via entity check.", bbToNeutralize.getCenter());
+                    LOGGER.info("PillagersStayDead: Outpost at {} neutralized via entity check.", bbToNeutralize.getCenter());
                 }
                 if (worldData != null) {
                     worldData.addNeutralizedOutpost(bbToNeutralize);
@@ -363,12 +354,12 @@ public class PillagersStayDead {
         }
     }
 
-    @SubscribeEvent
-    public void onEntityJoin(EntityJoinLevelEvent event) {
-        if (event.getLevel().isClientSide() || !(event.getEntity() instanceof Pillager pillager)) return;
+    public void onEntityJoin(net.minecraft.world.entity.Entity entity, ServerLevel level) { 
+        if (level.isClientSide() || !(entity instanceof Pillager)) return;
+        Pillager pillager = (Pillager) entity;
 
-        ServerLevel level = (ServerLevel) pillager.level();
-        if (level.dimension() != Level.OVERWORLD) return;
+        ServerLevel serverLevel = level; // Use the passed level directly
+        if (serverLevel.dimension() != Level.OVERWORLD) return;
         
         BlockPos spawnPos = pillager.blockPosition();
         ChunkPos spawnChunkPos = new ChunkPos(spawnPos);
@@ -376,7 +367,7 @@ public class PillagersStayDead {
         BoundingBox outpostBBFromCache = outpostCache.get(spawnChunkPos.toLong());
         if (outpostBBFromCache != null && outpostBBFromCache.isInside(spawnPos)) {
             if (neutralizedOutposts.contains(outpostBBFromCache)) {
-                event.setCanceled(true);
+                entity.discard(); // Correct way to remove entity
                 LOGGER.debug("PillagersStayDead: Prevented Pillager spawn in neutralized outpost {} (cached in its chunk {})", outpostBBFromCache.getCenter(), spawnChunkPos);
                 return;
             } else {
@@ -388,7 +379,7 @@ public class PillagersStayDead {
 
         for (BoundingBox neutralizedBB : neutralizedOutposts) {
             if (neutralizedBB.isInside(spawnPos)) {
-                event.setCanceled(true);
+                entity.discard(); // Correct way to remove entity
                 LOGGER.debug("PillagersStayDead: Prevented Pillager spawn in neutralized outpost {} (found via iteration)", neutralizedBB.getCenter());
                 return;
             }
@@ -434,7 +425,7 @@ public class PillagersStayDead {
             return;
         }
 
-        LOGGER.trace("PillagersStayDead: Scanning {} new chunks for outposts near {} (radius {} chunks)", chunksToScanForNewOutposts.size(), centerPos, radiusChunks);
+        LOGGER.debug("PillagersStayDead: Scanning {} new chunks for outposts near {} (radius {} chunks)", chunksToScanForNewOutposts.size(), centerPos, radiusChunks);
         
         var structureRegistry = serverLevel.registryAccess().registryOrThrow(Registries.STRUCTURE);
         Set<BoundingBox> processedOutpostsThisScan = new HashSet<>(); 
@@ -449,7 +440,7 @@ public class PillagersStayDead {
                     continue; 
                 }
                 // For onChunkLoad scans (radius 0), log if chunk not found, as it was expected.
-                LOGGER.trace("PillagersStayDead: Chunk ({},{}) expected from onChunkLoad was not found or empty for STRUCTURE_REFERENCES scan.", chunkX, chunkZ);
+                LOGGER.debug("PillagersStayDead: Chunk ({},{}) expected from onChunkLoad was not found or empty for STRUCTURE_REFERENCES scan.", chunkX, chunkZ);
                 continue;
             }
 
@@ -462,8 +453,7 @@ public class PillagersStayDead {
             for (ResourceLocation structureId : TRACKED_STRUCTURES) {
                 Structure structure = structureRegistry.get(structureId);
                 if (structure == null) {
-                    // Since TRACKED_STRUCTURES is pre-filtered, this means a structure from a loaded mod (or vanilla) is unexpectedly missing.
-                    LOGGER.warn("PillagersStayDead: Could not resolve structure for ID: {} from a supposedly loaded mod or vanilla. This might indicate an issue with the mod providing this structure or a data problem.", structureId);
+                    LOGGER.warn("PillagersStayDead: Unknown structure ID in TRACKED_STRUCTURES: {}", structureId);
                     continue;
                 }
                 
@@ -488,7 +478,7 @@ public class PillagersStayDead {
                     // Log identified structure type
                     String structureTypeNamespace = structureId.getNamespace();
                     if (structureTypeNamespace.equals("minecraft") || structureTypeNamespace.equals("towns_and_towers") || structureTypeNamespace.equals("terralith") || structureTypeNamespace.equals("ctov")) {
-                        LOGGER.debug("PillagersStayDead: Found {} outpost: {} at {}", structureTypeNamespace, structureId.getPath(), bb.getCenter());
+                        LOGGER.info("PillagersStayDead: Found {} outpost: {} at {}", structureTypeNamespace, structureId.getPath(), bb.getCenter());
                     }
 
 
@@ -582,10 +572,9 @@ public class PillagersStayDead {
             return data;
         }
 
-        @ParametersAreNonnullByDefault
         @Override
         public CompoundTag save(CompoundTag tag, HolderLookup.Provider provider) {
-            LOGGER.debug("PillagersStayDead: Saving {} neutralized outposts to NBT...", neutralizedSet.size());
+            LOGGER.info("PillagersStayDead: Saving {} neutralized outposts to NBT...", neutralizedSet.size());
             ListTag list = new ListTag();
             for (BoundingBox bb : neutralizedSet) {
                 CompoundTag bbTag = new CompoundTag();
@@ -609,13 +598,13 @@ public class PillagersStayDead {
             this.neutralizedSet.clear();
             this.neutralizedSet.addAll(outposts);
             setDirty();
-            LOGGER.debug("PillagersStayDead: Neutralized outposts set in SavedData updated ({} entries), marked dirty.", this.neutralizedSet.size());
+            LOGGER.info("PillagersStayDead: Neutralized outposts set in SavedData updated ({} entries), marked dirty.", this.neutralizedSet.size());
         }
 
         public void addNeutralizedOutpost(BoundingBox bb) {
             if (this.neutralizedSet.add(bb)) { 
                 setDirty();
-                LOGGER.debug("PillagersStayDead: Added new neutralized outpost BB: {} to SavedData. Marked dirty.", bb.getCenter());
+                LOGGER.info("PillagersStayDead: Added new neutralized outpost BB: {} to SavedData. Marked dirty.", bb.getCenter());
             }
         }
 

@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "pillagersstaydead",
+	"version": "${version}",
+	"name": "Pillagers Stay Dead",
+	"description": "Prevents pillagers from respawning in outposts once cleared.",
+	"authors": [
+		"Strikz"
+	],
+	"contact": {
+		"homepage": "",
+		"sources": ""
+	},
+	"license": "GPL-3.0-only",
+	"icon": "assets/pillagersstaydead/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.strikz.pillagersstaydead.PillagersStayDead"
+		]
+	},
+	"mixins": [
+		"pillagersstaydead.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.16.14",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
