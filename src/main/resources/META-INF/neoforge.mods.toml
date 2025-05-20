@@ -1,0 +1,26 @@
+# Non–mod‑specific properties
+modLoader    = "javafml"          # mandatory; use the Java FML loader :contentReference[oaicite:1]{index=1}
+loaderVersion = "[4,)"            # mandatory; must be a Maven‐style range with a comma :contentReference[oaicite:2]{index=2}
+license      = "GPL-3.0-only"              # mandatory; SPDX identifier or URL :contentReference[oaicite:3]{index=3}
+
+# Your mod(s)
+[[mods]]                         # mandatory; start of an array of tables :contentReference[oaicite:4]{index=4}
+modId       = "pillagersstaydead" # mandatory; lowercase, 2–64 chars :contentReference[oaicite:5]{index=5}
+version     = "0.1.2"             # mandatory; your mod's version :contentReference[oaicite:6]{index=6}
+displayName = "Pillagers Stay Dead" # mandatory; human‑readable name :contentReference[oaicite:7]{index=7}
+authors     = "strikz"   # optional; shown in the Mods list :contentReference[oaicite:8]{index=8}
+logoFile    = "assets/pillagersstaydead/icon.png"  # optional; path inside JAR :contentReference[oaicite:10]{index=10}
+
+# A multiline literal string—triple single‑quotes are supported in TOML v0.5.0 :contentReference[oaicite:9]{index=9}
+description = '''
+A mod that prevents pillagers from respawning at outposts once they've been cleared.
+Makes conquered pillager outposts stay conquered!
+'''
+
+# Optional sections left commented out; uncomment and adjust as needed:
+#issueTrackerURL = "https://your.issue.tracker.here/"        # optional
+#logoFile        = "main/resources/ModLogo.png"       # optional; path inside JAR :contentReference[oaicite:10]{index=10}
+#updateJSONURL   = "https://example.com/updates.json"        # optional; for NeoForge's update checker :contentReference[oaicite:11]{index=11}
+#displayURL      = "https://your.mod.homepage/"              # optional
+#credits         = "Thanks to all contributors!"             # optional
+#features        = { javaVersion = "[21,)" }                # optional; require Java 21+ :contentReference[oaicite:12]{index=12}
