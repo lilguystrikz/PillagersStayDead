@@ -1,7 +1,7 @@
 # Non–mod‑specific properties
 modLoader    = "javafml"          # mandatory; use the Java FML loader :contentReference[oaicite:1]{index=1}
 loaderVersion = "[4,)"            # mandatory; must be a Maven‐style range with a comma :contentReference[oaicite:2]{index=2}
-license      = "GPL-3.0-only"              # mandatory; SPDX identifier or URL :contentReference[oaicite:3]{index=3}
+license      = "MIT"              # mandatory; SPDX identifier or URL :contentReference[oaicite:3]{index=3}
 
 # Your mod(s)
 [[mods]]                         # mandatory; start of an array of tables :contentReference[oaicite:4]{index=4}
