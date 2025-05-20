@@ -11,7 +11,7 @@
 		"homepage": "",
 		"sources": ""
 	},
-	"license": "GPL-3.0-only",
+	"license": "MIT",
 	"icon": "assets/pillagersstaydead/icon.png",
 	"environment": "*",
 	"entrypoints": {
