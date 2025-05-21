@@ -6,7 +6,7 @@ license      = "MIT"              # mandatory; SPDX identifier or URL :contentRe
 # Your mod(s)
 [[mods]]                         # mandatory; start of an array of tables :contentReference[oaicite:4]{index=4}
 modId       = "pillagersstaydead" # mandatory; lowercase, 2–64 chars :contentReference[oaicite:5]{index=5}
-version     = "0.1.2"             # mandatory; your mod's version :contentReference[oaicite:6]{index=6}
+version     = "0.1.3"             # mandatory; your mod's version :contentReference[oaicite:6]{index=6}
 displayName = "Pillagers Stay Dead" # mandatory; human‑readable name :contentReference[oaicite:7]{index=7}
 authors     = "strikz"   # optional; shown in the Mods list :contentReference[oaicite:8]{index=8}
 logoFile    = "assets/pillagersstaydead/icon.png"  # optional; path inside JAR :contentReference[oaicite:10]{index=10}
